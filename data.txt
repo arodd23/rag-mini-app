@@ -1,0 +1,4 @@
+The Eiffel Tower is located in Paris, France.
+Python is a popular programming language used for AI and data science.
+The Great Wall of China is one of the largest structures ever built.
+Chicago is a major city in the United States known for architecture.
