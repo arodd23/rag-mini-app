@@ -5,8 +5,7 @@ import numpy as np
 import google.genai as genai
 import os
 
-# load API key
-genai.configure(api_key="AQ.Ab8RN6KKJwt4oJ_a4eKDrZ8NtH7J3Y1BltQd77Ul_fyG-nzI1A")
+
 
 # load model
 model_llm = genai.GenerativeModel("gemini-1.5-flash-latest")
