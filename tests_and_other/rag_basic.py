@@ -6,7 +6,6 @@ import google.genai as genai
 import os
 
 
-
 # load model
 model_llm = genai.GenerativeModel("gemini-1.5-flash-latest")
 
