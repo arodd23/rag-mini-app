@@ -1,0 +1,6 @@
+{
+  "data_hash": "afde2723c09f1bc5f2adf6e58740e2a6db78a07a50f51ebe7609d69aac61fcb0",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "chunk_size": 500,
+  "overlap": 50
+}

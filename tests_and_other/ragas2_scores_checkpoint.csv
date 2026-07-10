@@ -1,0 +1,2 @@
+original_index,user_input,retrieved_chunk_ids,response,reference,gold_chunk_id,context_recall,faithfulness,factual_correctness
+0,How much zinc was used to produce pennies in the United States in 1994?,"[75, 74, 73, 98, 151]","In 1994, 33,200 tonnes (36,600 short tons) of zinc were used to produce pennies in the United States.","33,200 tonnes (36,600 short tons) of zinc.",75,1.0,1.0,0.0
