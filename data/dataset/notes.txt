@@ -1,0 +1,10 @@
+============================================================
+CORPUS SUMMARY
+============================================================
+Experimental documents : 5,000
+Average characters      : 51,206
+Shortest document       : 5,124
+Longest document        : 1,323,870
+Random seed             : 42
+Experimental corpus     : data\dataset\documents.json
+Full corpus             : data\dataset\govreport_full.json

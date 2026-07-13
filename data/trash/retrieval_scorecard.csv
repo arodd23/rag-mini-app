@@ -1,2 +1,0 @@
-run_name,num_questions,top_k,recall_at_5,mrr,ndcg_at_5,num_misses
-v0_retrieval_baseline,66,5,1.0,0.9184,0.939,0

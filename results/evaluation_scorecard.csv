@@ -1,2 +1,0 @@
-num_questions,num_unanswerable,num_scored_for_retrieval,num_scored_for_faithfulness,num_scored_for_answer_relevancy,recall_at_5,mrr,ndcg_at_5,faithfulness,answer_relevancy
-160,0,160,158,160,1.0,0.9875,1.6857293943161682,0.9876582278481013,0.8184604544700621
