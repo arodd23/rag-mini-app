@@ -1,0 +1,114 @@
+Daily Convo Dataset Highlights:
+- Short dataset
+- Embedding model : sentence-transformers/all-MiniLM-L6-v2
+- Generation model : gemini-2.5-flash
+- Shortly starting implementing cache files to reduce time taken per trial and API calls
+- implemented streamlit and built base UI
+- Utilized character limit based chunking at first but switched to chunking based on document due to confusions.
+- Implemented question type tags in eval sets for better organization. 
+- Rejection rate through human review was 17/20 Sucess. 
+- Changed gold chunk id to a list to accomondate for multihop questions.
+- Reached Phase 3 before dataset switch
+Metrics : 
+Recall@5
+1.0
+
+
+MRR
+0.9875
+
+
+nDCG@5
+0.9390
+
+
+Faithfulness
+0.9877
+
+
+Answer Relevancy
+0.8185
+
+- Metrics did not include unanswerables due to its impact to Faithfulness metric.
+
+Gov Dataset
+
+Phase 2 Metrics : 
+
+Phase 3 Chunking Strategy : 
+| Setting              |                                Value |
+| -------------------- | -----------------------------------: |
+| Chunk size           |                   **500 characters** |
+| Overlap              |                    **50 characters** |
+| Step size            |                   **450 characters** |
+| Minimum chunk length |                   **200 characters** |
+| Chunking scope       |         **Each document separately** |
+| Stored data          | `chunk_id`, `doc_id`, `start`, `end` |
+
+
+During first run of evaluate.py it seemed that a lot of questions were getting 0s for metrics. To isolate issue I checked metrics for only answerables.
+
+According to evaluation_cache.jsonl, for only answerable questions.
+
+Metric	Score:
+Recall@5	0.6875
+MRR	0.5694
+nDCG@5	0.5987
+Faithfulness	0.9692
+Answer Relevancy	0.6855
+
+Counts:
+80 answerable questions
+55/80 retrieved the gold chunk in the top 5
+25/80 missed the gold chunk
+16/80 answered with “I don't have enough information”
+Faithfulness was scored on 65/80 questions
+
+For complete eval set of eval_set_v2_raw.jsonl : 
+================================================================================
+Questions evaluated: 170 (20 unanswerable)
+
+Retrieval scored on: 150 questions
+Recall@5: 0.6100
+MRR: 0.5334
+nDCG@5: 0.5314
+Faithfulness scored on: 137 questions
+Faithfulness: 0.8682
+
+Answer Relevancy scored on: 170 questions
+Answer Relevancy: 0.5839
+================================================================================
+
+Through human review, it seemed that some questions were failing because it did not get the correct chunk id but was getting a number +-5 to chunk id. Considering overlap, re reviewed all failed questions. 
+Review Criteria:
+
+* How clear and specific the question was
+* Whether it clearly mentioned identifiable details (such as a report, case, program, agency, year, or topic)
+* Whether the gold passage fully supported the reference answer
+* Whether any retrieved content included enough evidence to support the answer
+* Whether any valid supporting passages were missing from the gold annotations
+* Whether the issue was truly a retrieval failure
+
+Each case was then placed into one of the following categories:
+
+* `TRUE_RETRIEVAL_FAILURE`
+* `INCOMPLETE_GOLD_LABEL`
+* `AMBIGUOUS_QUESTION`
+* `BAD_REFERENCE_OR_GOLD_SPAN`
+* `OTHER`
+
+Failure review summary:
+  AMBIGUOUS_QUESTION           6
+  INCOMPLETE_GOLD_LABEL        6
+  TRUE_RETRIEVAL_FAILURE       38
+
+LLM vague-question flags: 6
+Fast vagueness flags: 10
+Fast/LLM disagreements: 6
+
+Fix : 
+- Rephrased Ambigious questions.
+- Ran review criteria on those specific questions and tweaked until passed.
+- Reran evaluate.py on fixed questions.
+- Manually replaced caches.
+- Reevaluated metrics.

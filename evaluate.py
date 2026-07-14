@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from rag_core import RAGSystem
-from metrics import recall_at_k, mrr, ndcg_at_k
+from metrics import (
+    recall_at_k_multi,
+    mrr_multi,
+    ndcg_at_k_multi,
+)
 
 from ragas.llms import llm_factory
 from ragas.embeddings import HuggingFaceEmbeddings
@@ -23,7 +27,7 @@ from ragas.metrics.collections import (
 # PATHS
 # ============================================================
 
-EVAL_PATH = Path("data/eval_set_v0.jsonl")
+EVAL_PATH = Path("data/eval/eval_set_v2_raw.jsonl")
 
 RESULTS_DIR = Path("results")
 
@@ -163,7 +167,8 @@ def load_eval_set(
             required_keys = {
                 "question",
                 "answer",
-                "gold_chunk_id",
+                "type",
+                "gold_chunk_ids",
             }
 
             if not required_keys.issubset(
@@ -173,6 +178,41 @@ def load_eval_set(
                     f"Bad record on line "
                     f"{line_number}. "
                     f"Missing required keys."
+                )
+
+            if not isinstance(record["question"], str) or not record["question"].strip():
+                raise ValueError(
+                    f"Bad record on line {line_number}: question must be non-empty."
+                )
+
+            if not isinstance(record["type"], str) or not record["type"].strip():
+                raise ValueError(
+                    f"Bad record on line {line_number}: type must be non-empty."
+                )
+
+            if record["answer"] is not None and not isinstance(record["answer"], str):
+                raise ValueError(
+                    f"Bad record on line {line_number}: answer must be a string or null."
+                )
+
+            gold_ids = record["gold_chunk_ids"] or []
+            if not isinstance(gold_ids, list):
+                raise ValueError(
+                    f"Bad record on line {line_number}: gold_chunk_ids must be a list."
+                )
+
+            record["gold_chunk_ids"] = list(dict.fromkeys(
+                int(gold_id) for gold_id in gold_ids
+            ))
+
+            if record["type"] == "unanswerable" and record["gold_chunk_ids"]:
+                raise ValueError(
+                    f"Bad record on line {line_number}: unanswerable items must have no gold chunks."
+                )
+
+            if record["type"] != "unanswerable" and not record["gold_chunk_ids"]:
+                raise ValueError(
+                    f"Bad record on line {line_number}: answerable items need at least one gold chunk."
                 )
 
             record["original_index"] = len(records)
@@ -275,6 +315,20 @@ def save_cache_record(
 # ============================================================
 
 def get_score_value(result):
+    """
+    Returns the metric's float score, or None if Ragas returned
+    NaN.
+
+    NaN shows up whenever there's nothing for the metric to
+    measure -- most commonly when the response is a refusal like
+    "I don't have enough information to answer that," which
+    contains zero verifiable claims (Faithfulness ends up
+    computing 0/0). That's a legitimate degenerate case, not a
+    crash-worthy one: we want the run to keep going and just
+    record "not applicable" for that question, instead of dying
+    on this one row and re-hitting the same NaN forever on rerun.
+    """
+
     if hasattr(result, "value"):
         value = result.value
 
@@ -284,9 +338,7 @@ def get_score_value(result):
     value = float(value)
 
     if math.isnan(value):
-        raise RuntimeError(
-            "Ragas metric returned NaN."
-        )
+        return None
 
     return value
 
@@ -315,11 +367,18 @@ def create_cache_record(
         "reference": (
             eval_record["answer"]
         ),
-        "gold_chunk_id": int(
-            eval_record["gold_chunk_id"]
+        "type": (
+            eval_record["type"]
+        ),
+        "gold_chunk_ids": (
+            eval_record["gold_chunk_ids"]
+        ),
+        "gold_spans": (
+            eval_record.get("gold_spans", [])
         ),
 
         "retrieved_chunk_ids": None,
+        "retrieved_doc_ids": None,
         "retrieved_contexts": None,
 
         "recall_at_5": None,
@@ -352,19 +411,11 @@ def run_retrieval_stage(
         )
         is not None
         and cache_record.get(
+            "retrieved_doc_ids"
+        )
+        is not None
+        and cache_record.get(
             "retrieved_contexts"
-        )
-        is not None
-        and cache_record.get(
-            "recall_at_5"
-        )
-        is not None
-        and cache_record.get(
-            "mrr"
-        )
-        is not None
-        and cache_record.get(
-            "ndcg_at_5"
         )
         is not None
     ):
@@ -382,8 +433,8 @@ def run_retrieval_stage(
 
     question = cache_record["question"]
 
-    gold_chunk_id = cache_record[
-        "gold_chunk_id"
+    gold_chunk_ids = cache_record[
+        "gold_chunk_ids"
     ]
 
     retrieved_chunks = rag.retrieve(
@@ -401,26 +452,36 @@ def run_retrieval_stage(
         for chunk in retrieved_chunks
     ]
 
-    recall_score = recall_at_k(
+
+    retrieved_doc_ids = [
+        chunk["doc_id"]
+        for chunk in retrieved_chunks
+    ]
+
+    recall_score = recall_at_k_multi(
         retrieved_chunk_ids,
-        gold_chunk_id,
+        gold_chunk_ids,
         k=TOP_K,
     )
 
-    mrr_score = mrr(
+    mrr_score = mrr_multi(
         retrieved_chunk_ids,
-        gold_chunk_id,
+        gold_chunk_ids,
     )
 
-    ndcg_score = ndcg_at_k(
+    ndcg_score = ndcg_at_k_multi(
         retrieved_chunk_ids,
-        gold_chunk_id,
+        gold_chunk_ids,
         k=TOP_K,
     )
 
     cache_record[
         "retrieved_chunk_ids"
     ] = retrieved_chunk_ids
+
+    cache_record[
+        "retrieved_doc_ids"
+    ] = retrieved_doc_ids
 
     cache_record[
         "retrieved_contexts"
@@ -452,8 +513,13 @@ def run_retrieval_stage(
     )
 
     print(
-        f"Gold chunk ID: "
-        f"{gold_chunk_id}"
+        f"Retrieved doc IDs: "
+        f"{retrieved_doc_ids}"
+    )
+
+    print(
+        f"Gold chunk ID(s): "
+        f"{gold_chunk_ids}"
     )
 
     print(
@@ -556,11 +622,14 @@ async def run_faithfulness_stage(
     cache_record,
     faithfulness_metric,
 ):
+    stages_done = {
+        "faithfulness_complete",
+        "complete",
+    }
+
     if (
-        cache_record.get(
-            "faithfulness"
-        )
-        is not None
+        cache_record.get("status")
+        in stages_done
     ):
         print()
         print(
@@ -621,6 +690,14 @@ async def run_faithfulness_stage(
         cache_record
     )
 
+    if faithfulness_score is None:
+        print(
+            "NOTE: Faithfulness came back NaN "
+            "(commonly means the response had no "
+            "verifiable claims, e.g. a refusal). "
+            "Recorded as N/A, not a failure."
+        )
+
     print(
         f"Faithfulness: "
         f"{faithfulness_score}"
@@ -642,10 +719,8 @@ async def run_answer_relevancy_stage(
     answer_relevancy_metric,
 ):
     if (
-        cache_record.get(
-            "answer_relevancy"
-        )
-        is not None
+        cache_record.get("status")
+        == "complete"
     ):
         print()
         print(
@@ -700,6 +775,12 @@ async def run_answer_relevancy_stage(
     save_cache_record(
         cache_record
     )
+
+    if answer_relevancy_score is None:
+        print(
+            "NOTE: Answer Relevancy came back NaN. "
+            "Recorded as N/A, not a failure."
+        )
 
     print(
         f"Answer Relevancy: "
@@ -773,56 +854,93 @@ def build_scorecard(
     recall_scores = [
         float(record["recall_at_5"])
         for record in completed_records
+        if record["recall_at_5"] is not None
     ]
 
     mrr_scores = [
         float(record["mrr"])
         for record in completed_records
+        if record["mrr"] is not None
     ]
 
     ndcg_scores = [
         float(record["ndcg_at_5"])
         for record in completed_records
+        if record["ndcg_at_5"] is not None
     ]
 
     faithfulness_scores = [
         float(record["faithfulness"])
         for record in completed_records
+        if record["faithfulness"] is not None
     ]
 
     answer_relevancy_scores = [
         float(record["answer_relevancy"])
         for record in completed_records
+        if record["answer_relevancy"] is not None
     ]
+
+    unanswerable_count = sum(
+        1
+        for record in completed_records
+        if record.get("type") == "unanswerable"
+    )
 
     return {
         "num_questions": (
             len(completed_records)
         ),
 
+        "num_unanswerable": (
+            unanswerable_count
+        ),
+
+        "num_scored_for_retrieval": (
+            len(recall_scores)
+        ),
+
+        "num_scored_for_faithfulness": (
+            len(faithfulness_scores)
+        ),
+
+        "num_scored_for_answer_relevancy": (
+            len(answer_relevancy_scores)
+        ),
+
         "recall_at_5": (
             sum(recall_scores)
             / len(recall_scores)
+            if recall_scores
+            else None
         ),
 
         "mrr": (
             sum(mrr_scores)
             / len(mrr_scores)
+            if mrr_scores
+            else None
         ),
 
         "ndcg_at_5": (
             sum(ndcg_scores)
             / len(ndcg_scores)
+            if ndcg_scores
+            else None
         ),
 
         "faithfulness": (
             sum(faithfulness_scores)
             / len(faithfulness_scores)
+            if faithfulness_scores
+            else None
         ),
 
         "answer_relevancy": (
             sum(answer_relevancy_scores)
             / len(answer_relevancy_scores)
+            if answer_relevancy_scores
+            else None
         ),
     }
 
@@ -832,6 +950,10 @@ def write_scorecard(
 ):
     fieldnames = [
         "num_questions",
+        "num_unanswerable",
+        "num_scored_for_retrieval",
+        "num_scored_for_faithfulness",
+        "num_scored_for_answer_relevancy",
         "recall_at_5",
         "mrr",
         "ndcg_at_5",
@@ -869,34 +991,59 @@ def print_scorecard(
 
     print(
         f"Questions evaluated: "
-        f"{scorecard['num_questions']}"
+        f"{scorecard['num_questions']} "
+        f"({scorecard['num_unanswerable']} unanswerable)"
     )
 
     print()
 
     print(
+        f"Retrieval scored on: "
+        f"{scorecard['num_scored_for_retrieval']} questions"
+    )
+
+    def format_or_na(value):
+        return (
+            f"{value:.4f}"
+            if value is not None
+            else "N/A"
+        )
+
+    print(
         f"Recall@5: "
-        f"{scorecard['recall_at_5']:.4f}"
+        f"{format_or_na(scorecard['recall_at_5'])}"
     )
 
     print(
         f"MRR: "
-        f"{scorecard['mrr']:.4f}"
+        f"{format_or_na(scorecard['mrr'])}"
     )
 
     print(
         f"nDCG@5: "
-        f"{scorecard['ndcg_at_5']:.4f}"
+        f"{format_or_na(scorecard['ndcg_at_5'])}"
+    )
+
+    print(
+        f"Faithfulness scored on: "
+        f"{scorecard['num_scored_for_faithfulness']} questions"
     )
 
     print(
         f"Faithfulness: "
-        f"{scorecard['faithfulness']:.4f}"
+        f"{format_or_na(scorecard['faithfulness'])}"
+    )
+
+    print()
+
+    print(
+        f"Answer Relevancy scored on: "
+        f"{scorecard['num_scored_for_answer_relevancy']} questions"
     )
 
     print(
         f"Answer Relevancy: "
-        f"{scorecard['answer_relevancy']:.4f}"
+        f"{format_or_na(scorecard['answer_relevancy'])}"
     )
 
     print("=" * 80)
@@ -1336,4 +1483,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

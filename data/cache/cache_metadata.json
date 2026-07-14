@@ -1,6 +1,6 @@
 {
-  "data_hash": "afde2723c09f1bc5f2adf6e58740e2a6db78a07a50f51ebe7609d69aac61fcb0",
-  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-  "chunk_size": 500,
-  "overlap": 50
+  "data_path": "C:\\Users\\aroddom\\rag-mini-app\\data\\dataset\\gov_report_sample_2k.json",
+  "data_hash": "b76e1839133e90cdb1ba40983d41cc13fa978918dd797b4c8c2139938dffca17",
+  "chunk_index_hash": "43f20b2a49cb9cfb2733520ab01e17958c6201a01037550bb258eea6ec99774f",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
 }

@@ -7,8 +7,9 @@ have changed since the last build (checked via a content hash + params
 stored in the .meta.json sidecar).
 
 The cache stores chunk OFFSETS (doc_id, start, end), not chunk text, so it
-stays small even with ~5,000 long documents. gen_eval.py slices the actual
-text out of the source docs on demand.
+stays small. gen_eval*.py slice the actual text out of the source docs on
+demand, and store those same offsets as gold_spans -- durable ground truth
+that survives rechunking.
 
 Usage:
     python build_chunk_index.py
@@ -22,7 +23,7 @@ from pathlib import Path
 
 from corpus import load_raw_docs, chunk_document, file_hash
 
-DEFAULT_DATASET_PATH = Path("data/dataset/documents.json")
+DEFAULT_DATASET_PATH = Path("data/dataset/gov_report_sample_2k.json")
 CACHE_PATH = Path("data/cache/chunk_index.jsonl")
 CACHE_META_PATH = Path("data/cache/chunk_index.meta.json")
 
