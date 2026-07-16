@@ -5,6 +5,4 @@ __pycache__/
 data/dataset/documents.json
 data/dataset/gov_report_sample_2k.json
 data/dataset/govreport_full.json
-data/cache/chunk_embeddings.npy
-data/cache/chunks.json
-data/cache/chunk_index.jsonl
+data/cache/

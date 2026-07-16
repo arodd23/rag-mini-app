@@ -79,7 +79,7 @@ import evaluate
 
 
 DEFAULT_FIXED_PATH = Path("data/eval/fixed_questions.jsonl")
-DEFAULT_EVAL_PATH = Path("data/eval/eval_set_v2.jsonl")
+DEFAULT_EVAL_PATH = Path("data/eval/eval_set_v2_raw.jsonl")
 DEFAULT_CACHE_PATH = Path("data/cache/evaluation_cache.jsonl")
 DEFAULT_PREDICTIONS_PATH = Path(
     "results/evaluation_predictions.jsonl"
