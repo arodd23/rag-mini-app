@@ -1,0 +1,5 @@
+config_name,strategy,chunk_size,overlap,similarity_threshold,top_k,eval_file_hash,dataset_hash,num_questions,num_unanswerable,num_scored_for_retrieval,num_scored_for_faithfulness,num_scored_for_answer_relevancy,recall_at_5,mrr,ndcg_at_5,faithfulness,answer_relevancy
+fixed_c256_o51_min200,fixed,256,51,0.6,5,2e56ec74fb0b325f,b76e1839133e90cd,150,0,150,0,0,0.5133333333333333,0.3987777777777778,0.4154209253765558,,
+fixed_c512_o102_min200,fixed,512,102,0.6,5,2e56ec74fb0b325f,b76e1839133e90cd,150,0,150,0,0,0.6066666666666667,0.5083333333333333,0.5210293057534721,,
+fixed_c1024_o204_min200,fixed,1024,204,0.6,5,2e56ec74fb0b325f,b76e1839133e90cd,150,0,150,0,0,0.55,0.47577777777777785,0.478442954816324,,
+recursive_c256_o51_min200,recursive,256,51,0.6,5,2e56ec74fb0b325f,b76e1839133e90cd,150,0,150,0,0,0.5033333333333333,0.36311111111111116,0.36436531784768733,,

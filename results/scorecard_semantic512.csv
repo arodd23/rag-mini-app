@@ -1,0 +1,2 @@
+config_name,strategy,chunk_size,overlap,similarity_threshold,top_k,eval_file_hash,dataset_hash,num_questions,num_unanswerable,num_scored_for_retrieval,num_scored_for_faithfulness,num_scored_for_answer_relevancy,recall_at_5,mrr,ndcg_at_5,faithfulness,answer_relevancy
+semantic_t60_m512_min200,semantic,512,50,0.6,5,2e56ec74fb0b325f,b76e1839133e90cd,150,0,150,0,0,0.51,0.38555555555555565,0.40011564640444186,,

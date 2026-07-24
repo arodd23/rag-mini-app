@@ -1,0 +1,14 @@
+{
+  "source_path": "data\\dataset\\gov_report_sample_2k.json",
+  "source_hash": "b76e1839133e90cd",
+  "config": {
+    "strategy": "recursive",
+    "chunk_size": 256,
+    "overlap": 25,
+    "similarity_threshold": 0.6,
+    "min_chunk_chars": 200
+  },
+  "num_docs": 2000,
+  "num_chunks": 284033,
+  "num_skipped_short": 0
+}

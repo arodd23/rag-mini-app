@@ -8,7 +8,7 @@ st.write("Page loaded successfully.")
 
 st.info("If you can see this, Streamlit is working and app.py is rendering.")
 
-DATA_PATH = Path("data/docs.txt")
+DATA_PATH = Path("data/dataset/gov_report_sample+2k.jsonl")
 
 if not DATA_PATH.exists():
     st.error("Missing data/docs.txt. Run python load_squad.py first.")

@@ -1,111 +1,119 @@
 """
 build_chunk_index.py
 
-Chunks the corpus once and caches the result. Re-run any time -- it only
-does real work if the source file, chunk size, overlap, or min-chunk-length
-have changed since the last build (checked via a content hash + params
-stored in the .meta.json sidecar).
+Chunks the corpus once per ChunkConfig and caches the result. Re-run any
+time -- it only does real work if the source file or that specific config
+has changed since the last build for it (content hash + config stored in
+a .meta.json sidecar).
 
-The cache stores chunk OFFSETS (doc_id, start, end), not chunk text, so it
-stays small. gen_eval*.py slice the actual text out of the source docs on
-demand, and store those same offsets as gold_spans -- durable ground truth
-that survives rechunking.
+Each distinct ChunkConfig gets its OWN cache file pair, named after
+config.name() (e.g. chunk_index__recursive_c1024_o102.jsonl). The default
+config (fixed, 500/50) keeps the original unsuffixed filenames for
+backward compatibility with the eval-generation scripts and the eval set
+they already produced against it.
+
+The cache stores chunk OFFSETS (doc_id, start, end), not chunk text.
 
 Usage:
     python build_chunk_index.py
-    python build_chunk_index.py --rebuild        # force a rebuild
-    python build_chunk_index.py --dataset path/to/your.json
+    python build_chunk_index.py --strategy recursive --chunk-size 1024 --overlap 100
+    python build_chunk_index.py --strategy semantic --chunk-size 1024 --similarity-threshold 0.6
+    python build_chunk_index.py --rebuild
 """
 
 import argparse
 import json
 from pathlib import Path
 
-from corpus import load_raw_docs, chunk_document, file_hash
+from corpus import load_raw_docs, chunk_document, file_hash, ChunkConfig, DEFAULT_CONFIG
 
 DEFAULT_DATASET_PATH = Path("data/dataset/gov_report_sample_2k.json")
-CACHE_PATH = Path("data/cache/chunk_index.jsonl")
-CACHE_META_PATH = Path("data/cache/chunk_index.meta.json")
-
-CHUNK_SIZE = 500
-OVERLAP = 50
-MIN_CHUNK_CHARS = 200  # drop trailing fragments shorter than this
+DATA_DIR = Path("data")
 
 
-def _cache_is_fresh(dataset_path):
-    if not (CACHE_PATH.exists() and CACHE_META_PATH.exists()):
+def cache_paths(config):
+    if config == DEFAULT_CONFIG:
+        return DATA_DIR / "chunk_index.jsonl", DATA_DIR / "chunk_index.meta.json"
+    name = config.name()
+    return DATA_DIR / f"chunk_index__{name}.jsonl", DATA_DIR / f"chunk_index__{name}.meta.json"
+
+
+def _cache_is_fresh(dataset_path, config, cache_path, meta_path):
+    if not (cache_path.exists() and meta_path.exists()):
         return False
-
-    meta = json.loads(CACHE_META_PATH.read_text())
+    meta = json.loads(meta_path.read_text())
     return (
         meta.get("source_hash") == file_hash(dataset_path)
         and meta.get("source_path") == str(dataset_path)
-        and meta.get("chunk_size") == CHUNK_SIZE
-        and meta.get("overlap") == OVERLAP
-        and meta.get("min_chunk_chars") == MIN_CHUNK_CHARS
+        and meta.get("config") == config.as_dict()
     )
 
 
-def build_index(dataset_path=DEFAULT_DATASET_PATH, force=False):
+def build_index(dataset_path=DEFAULT_DATASET_PATH, config=None, embedder=None, force=False):
+    """
+    Returns (cache_path, meta_path) for this config, building/refreshing
+    the cache first if needed.
+    """
+    config = config or DEFAULT_CONFIG
     dataset_path = Path(dataset_path)
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cache_path, meta_path = cache_paths(config)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not force and _cache_is_fresh(dataset_path):
-        meta = json.loads(CACHE_META_PATH.read_text())
+    if not force and _cache_is_fresh(dataset_path, config, cache_path, meta_path):
+        meta = json.loads(meta_path.read_text())
         print(
-            f"Chunk cache is up to date "
-            f"({meta['num_chunks']} chunks from {meta['num_docs']} docs). "
-            "Nothing to do. Use --rebuild to force."
+            f"Chunk cache '{config.name()}' up to date "
+            f"({meta['num_chunks']} chunks from {meta['num_docs']} docs)."
         )
-        return
+        return cache_path, meta_path
 
     print(f"Loading documents from {dataset_path}...")
     docs = load_raw_docs(dataset_path)
     print(f"Loaded {len(docs)} documents.")
 
+    if config.strategy == "semantic" and embedder is None:
+        from sentence_transformers import SentenceTransformer
+        print("Loading embedding model for semantic chunking...")
+        embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
     chunk_id = 0
     n_skipped_short = 0
 
-    print(f"Chunking (size={CHUNK_SIZE}, overlap={OVERLAP})...")
-    with CACHE_PATH.open("w", encoding="utf-8") as f:
+    print(f"Chunking with config: {config}")
+    with cache_path.open("w", encoding="utf-8") as f:
         for doc in docs:
-            spans = chunk_document(doc["text"], CHUNK_SIZE, OVERLAP)
+            spans = chunk_document(doc["text"], config=config, embedder=embedder)
             for start, end in spans:
-                if end - start < MIN_CHUNK_CHARS:
+                if end <= start:
                     n_skipped_short += 1
                     continue
-                record = {
-                    "chunk_id": chunk_id,
-                    "doc_id": doc["doc_id"],
-                    "start": start,
-                    "end": end,
-                }
+                record = {"chunk_id": chunk_id, "doc_id": doc["doc_id"], "start": start, "end": end}
                 f.write(json.dumps(record) + "\n")
                 chunk_id += 1
 
     meta = {
         "source_path": str(dataset_path),
         "source_hash": file_hash(dataset_path),
-        "chunk_size": CHUNK_SIZE,
-        "overlap": OVERLAP,
-        "min_chunk_chars": MIN_CHUNK_CHARS,
+        "config": config.as_dict(),
         "num_docs": len(docs),
         "num_chunks": chunk_id,
         "num_skipped_short": n_skipped_short,
     }
-    CACHE_META_PATH.write_text(json.dumps(meta, indent=2))
+    meta_path.write_text(json.dumps(meta, indent=2))
 
-    print(f"Wrote {chunk_id} chunks from {len(docs)} docs -> {CACHE_PATH}")
-    print(f"Skipped {n_skipped_short} fragments under {MIN_CHUNK_CHARS} chars.")
+    print(f"Wrote {chunk_id} chunks from {len(docs)} docs -> {cache_path}")
+    print(f"Skipped {n_skipped_short} fragments under {config.min_chunk_chars} chars.")
     avg_chunks_per_doc = chunk_id / len(docs) if docs else 0
     print(f"Average chunks per doc: {avg_chunks_per_doc:.1f}")
 
+    return cache_path, meta_path
 
-def load_chunk_index(dataset_path=DEFAULT_DATASET_PATH):
-    """Ensure the cache is built/fresh, then load it into memory as a list of dicts."""
-    build_index(dataset_path=dataset_path, force=False)
+
+def load_chunk_index(dataset_path=DEFAULT_DATASET_PATH, config=None, embedder=None):
+    """Ensure the cache for this config is built/fresh, then load it."""
+    cache_path, _meta_path = build_index(dataset_path=dataset_path, config=config, embedder=embedder, force=False)
     records = []
-    with CACHE_PATH.open("r", encoding="utf-8") as f:
+    with cache_path.open("r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 records.append(json.loads(line))
@@ -115,7 +123,17 @@ def load_chunk_index(dataset_path=DEFAULT_DATASET_PATH):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET_PATH))
+    parser.add_argument("--strategy", default="fixed", choices=["fixed", "recursive", "semantic"])
+    parser.add_argument("--chunk-size", type=int, default=500)
+    parser.add_argument("--overlap", type=int, default=50)
+    parser.add_argument("--similarity-threshold", type=float, default=0.6)
     parser.add_argument("--rebuild", action="store_true")
     args = parser.parse_args()
 
-    build_index(dataset_path=Path(args.dataset), force=args.rebuild)
+    cfg = ChunkConfig(
+        strategy=args.strategy,
+        chunk_size=args.chunk_size,
+        overlap=args.overlap,
+        similarity_threshold=args.similarity_threshold,
+    )
+    build_index(dataset_path=Path(args.dataset), config=cfg, force=args.rebuild)

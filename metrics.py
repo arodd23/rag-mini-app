@@ -1,81 +1,122 @@
-"""Retrieval metrics for single-gold and multi-gold RAG evaluation items."""
+"""Span-based retrieval metrics that remain valid after rechunking.
+
+A gold span is considered found only when the union of retrieved text covers at
+least ``coverage_threshold`` of that span. This avoids counting a one-character
+intersection as a complete retrieval hit.
+
+nDCG assigns each gold span to its earliest qualifying retrieved chunk exactly
+once, preventing overlapping retrieved chunks from double-counting the same
+evidence and guaranteeing 0 <= nDCG <= 1.
+"""
 
 import math
-from collections.abc import Iterable
+from collections import defaultdict
+
+DEFAULT_COVERAGE_THRESHOLD = 0.5
 
 
-def _unique_ids(ids: Iterable[int]) -> list[int]:
-    """Return IDs in original order with duplicates removed."""
-    return list(dict.fromkeys(int(item_id) for item_id in ids))
+def _validate_span(span):
+    required = {"doc_id", "start", "end"}
+    if not required.issubset(span):
+        raise ValueError(f"Span is missing keys {required - set(span)}: {span}")
+    if int(span["end"]) <= int(span["start"]):
+        raise ValueError(f"Span end must be greater than start: {span}")
 
 
-def recall_at_k_multi(retrieved_ids, gold_ids, k=5):
+def overlap_length(a, b):
+    """Number of overlapping characters, or zero when docs/ranges differ."""
+    _validate_span(a)
+    _validate_span(b)
+    if a["doc_id"] != b["doc_id"]:
+        return 0
+    return max(0, min(int(a["end"]), int(b["end"])) - max(int(a["start"]), int(b["start"])))
+
+
+def spans_overlap(a, b):
+    return overlap_length(a, b) > 0
+
+
+def _merged_intervals(intervals):
+    if not intervals:
+        return []
+    ordered = sorted((int(s), int(e)) for s, e in intervals if int(e) > int(s))
+    merged = [list(ordered[0])]
+    for start, end in ordered[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(s, e) for s, e in merged]
+
+
+def gold_span_coverage(gold_span, retrieved_chunks):
+    """Fraction of a gold span covered by the union of retrieved chunks."""
+    _validate_span(gold_span)
+    intervals = []
+    gs, ge = int(gold_span["start"]), int(gold_span["end"])
+    for chunk in retrieved_chunks:
+        if chunk["doc_id"] != gold_span["doc_id"]:
+            continue
+        start = max(gs, int(chunk["start"]))
+        end = min(ge, int(chunk["end"]))
+        if end > start:
+            intervals.append((start, end))
+    covered = sum(e - s for s, e in _merged_intervals(intervals))
+    return covered / (ge - gs)
+
+
+def _chunk_qualifies_for_gold(chunk, gold, coverage_threshold):
+    """Individual-rank match used by MRR/nDCG.
+
+    A single chunk must cover the threshold. Recall uses union coverage, so two
+    adjacent smaller chunks can together recover one larger gold span.
     """
-    Fraction of unique gold chunks retrieved in the top-k results.
+    return gold_span_coverage(gold, [chunk]) >= coverage_threshold
 
-    Returns None for records with no gold chunks, such as unanswerable
-    questions, because retrieval recall is not applicable to those rows.
-    """
-    gold = set(_unique_ids(gold_ids))
-    if not gold:
+
+def recall_at_k_multi(retrieved_chunks, gold_spans, k, coverage_threshold=DEFAULT_COVERAGE_THRESHOLD):
+    if not gold_spans:
         return None
+    topk = retrieved_chunks[:k]
+    covered = sum(
+        gold_span_coverage(gold, topk) >= coverage_threshold
+        for gold in gold_spans
+    )
+    return covered / len(gold_spans)
 
-    retrieved_top_k = set(_unique_ids(retrieved_ids)[:k])
-    return len(gold & retrieved_top_k) / len(gold)
 
-
-def mrr_multi(retrieved_ids, gold_ids):
-    """
-    Reciprocal rank of the first retrieved gold chunk.
-
-    Returns None when the record has no gold chunks.
-    """
-    gold = set(_unique_ids(gold_ids))
-    if not gold:
+def mrr_multi(retrieved_chunks, gold_spans, coverage_threshold=DEFAULT_COVERAGE_THRESHOLD):
+    if not gold_spans:
         return None
-
-    for rank, chunk_id in enumerate(_unique_ids(retrieved_ids), start=1):
-        if chunk_id in gold:
+    for rank, chunk in enumerate(retrieved_chunks, start=1):
+        if any(_chunk_qualifies_for_gold(chunk, gold, coverage_threshold) for gold in gold_spans):
             return 1.0 / rank
-
     return 0.0
 
 
-def ndcg_at_k_multi(retrieved_ids, gold_ids, k=5):
-    """
-    Binary-relevance nDCG@k for one or more gold chunks.
-
-    The score is normalized by the ideal placement of up to k unique gold
-    chunks. Returns None when the record has no gold chunks.
-    """
-    gold = set(_unique_ids(gold_ids))
-    if not gold:
+def ndcg_at_k_multi(retrieved_chunks, gold_spans, k, coverage_threshold=DEFAULT_COVERAGE_THRESHOLD):
+    """Binary nDCG with one relevance credit per gold span and no duplicates."""
+    if not gold_spans:
         return None
 
-    ranked_ids = _unique_ids(retrieved_ids)[:k]
-    dcg = sum(
-        1.0 / math.log2(rank + 1)
-        for rank, chunk_id in enumerate(ranked_ids, start=1)
-        if chunk_id in gold
-    )
+    unmatched = set(range(len(gold_spans)))
+    relevance = []
+    for chunk in retrieved_chunks[:k]:
+        matched_index = next(
+            (
+                i for i in sorted(unmatched)
+                if _chunk_qualifies_for_gold(chunk, gold_spans[i], coverage_threshold)
+            ),
+            None,
+        )
+        if matched_index is None:
+            relevance.append(0.0)
+        else:
+            relevance.append(1.0)
+            unmatched.remove(matched_index)
 
-    ideal_hits = min(len(gold), k)
-    idcg = sum(
-        1.0 / math.log2(rank + 1)
-        for rank in range(1, ideal_hits + 1)
-    )
-
-    return dcg / idcg if idcg else 0.0
-
-
-# Backward-compatible single-gold wrappers.
-def recall_at_k(retrieved_ids, gold_id, k=5):
-    return recall_at_k_multi(retrieved_ids, [gold_id], k=k)
-
-
-def mrr(retrieved_ids, gold_id):
-    return mrr_multi(retrieved_ids, [gold_id])
-
-
-def ndcg_at_k(retrieved_ids, gold_id, k=5):
-    return ndcg_at_k_multi(retrieved_ids, [gold_id], k=k)
+    dcg = sum(rel / math.log2(rank + 1) for rank, rel in enumerate(relevance, start=1))
+    ideal_hits = min(len(gold_spans), k)
+    idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+    score = dcg / idcg if idcg else 0.0
+    return min(1.0, max(0.0, score))

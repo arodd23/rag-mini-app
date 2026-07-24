@@ -112,3 +112,101 @@ Fix :
 - Reran evaluate.py on fixed questions.
 - Manually replaced caches.
 - Reevaluated metrics.
+
+Reevaluated metrics. v1
+================================================================================
+Questions evaluated: 170 (20 unanswerable)
+
+Retrieval scored on: 150 questions
+Recall@5: 0.6300
+MRR: 0.5490
+nDCG@5: 0.5480
+Faithfulness scored on: 138 questions
+Faithfulness: 0.8714
+
+Answer Relevancy scored on: 170 questions
+Answer Relevancy: 0.5930
+================================================================================
+
+Reevaluated metrics. v2
+================================================================================
+Questions evaluated: 170 (20 unanswerable)
+
+Retrieval scored on: 150 questions
+Recall@5: 0.6433
+MRR: 0.5623
+nDCG@5: 0.5614
+Faithfulness scored on: 137 questions
+Faithfulness: 0.8799
+
+Answer Relevancy scored on: 170 questions
+Answer Relevancy: 0.5916
+================================================================================
+
+Changes made to Questions.
+Question Revisions
+Index 35
+
+Original:
+What was the primary form of the report as it was submitted?
+
+First revision:
+In what form was the report required under subsection (a) submitted?
+
+Final revision:
+How did the report required under subsection (a) combine a classified annex with a one-page unclassified summary?
+
+Index 53
+
+Original:
+What were the two primary objectives of the review?
+
+Final revision:
+What were the two primary objectives of the review of the Department of Veterans Affairs’ pension program?
+
+Index 55
+
+Original:
+What information is presented in Appendix V?
+
+First revision:
+What does Appendix V explain about states’ use of property-record searches to verify applicants’ assets?
+
+Corrected revision:
+What does Appendix V explain about states’ use of property-record searches to verify applicants’ assets?
+
+Index 67 (FAIL)
+
+Original:
+According to the decision, under what conditions may states regulate?
+
+First revision:
+According to the decision concerning the Federal Power Act, when may states regulate matters that affect areas within FERC’s authority?
+
+Final revision:
+Under the Federal Power Act ruling in Hughes v. Talen Energy Marketing, when may states regulate within their congressionally assigned authority despite incidental effects on matters regulated by FERC?
+
+Index 85
+
+Original:
+What information is only partially provided concerning challenges presented to acquisition organizations?
+
+First revision:
+What information is unavailable or incomplete regarding protests submitted to federal procuring agencies?
+
+Final revision:
+What information is unavailable or incomplete regarding protests submitted to federal procuring agencies?
+
+Index 99
+
+Original:
+What was the principal format in which the report was submitted?
+
+First revision:
+In what format was the report submitted under subsection (a)?
+
+Final revision:
+What portions of the report submitted under subsection (a) consisted of a classified annex and a one-page unclassified summary?
+
+Moving onto Phase 4.
+
